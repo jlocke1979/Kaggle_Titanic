@@ -18,8 +18,6 @@ def clean_dataframe(df):
 	###### Turning Categorical to integers######
 	#### Sex 
 	df['Sex_Integer'] = df['Sex'].map( {'female': 0, 'male': 1} ).astype(int)
-	### Embarked
-	df['Embarked_Integer'] = df['Embarked'].map( {'S': 0, 'C': 1,'Q': 2} ).astype(float)
 
 	###### Fill Missing Values ###################
 	#### Age
@@ -34,9 +32,27 @@ def clean_dataframe(df):
 	    for j in range(0, 3):
 	        df.loc[ (df.Age.isnull()) & (df.Sex_Integer == i) & (df.Pclass == j+1),'Age_Fill'] = median_ages[i,j]
 	#### AgeIsNull
-	df['AgeIsNull'] = pd.isnull(df.Age).astype(int)
+	df['Age_Is_Null'] = pd.isnull(df.Age).astype(int)
 
-	# Fare Data 
+	# Create a column Fare_Fill that fills in fare Data that is null (set to Median Fare in PClass)
+	number_of_classes = len(df['Pclass'].unique())
+	median_fares_by_class = np.zeros([number_of_classes],float)
+	
+	for l in range(0,3):
+		median_fares_by_class[l] = df[(df['Pclass'] == l+1)]['Fare'].dropna().median()
+		
+	df['Fare_Fill'] = df['Fare']
+	for k in range(0,3):
+		df.loc[(df.Fare.isnull()) & (df.Pclass == k+1),'Fare_Fill' ] = median_fares_by_class[k]
+
+	#### Fare IS Null
+	df['Fare_Is_Null'] = pd.isnull(df.Fare).astype(int)
+
+	### Embarked Filling the empties 
+	df['Embarked_Fill'] = df['Embarked']
+	most_prevalent_embarked = df.Embarked.value_counts(sort=True, ascending = False).idxmax()
+	df.loc[ df.Embarked.isnull(),'Embarked_Fill'] = most_prevalent_embarked
+	df['Embarked_Fill_Integer'] = df['Embarked_Fill'].map( {'S': 0, 'C': 1,'Q': 2} ).astype(float)
 
 
 	#########  End - Data Cleaning  - Clean existing columns and create new columns#####################
@@ -70,20 +86,23 @@ test_df = clean_dataframe(test_df)
 # print train_df.dtypes[train_df.dtypes.map(lambda x: x=='object')]
 
 ### Drop Data that are not Needed
-# dropping first 5 because strings, dropping 'Age' because we transformed to 'Age_Fill'
-train_df = train_df.drop(['Name', 'Sex', 'Ticket', 'Cabin', 'Embarked', 'Age'], axis=1) 
-test_df = test_df.drop(['Name', 'Sex', 'Ticket', 'Cabin', 'Embarked', 'Age'], axis=1) 
+# Collect the test data's PassengerIds before dropping it
+ids = test_df['PassengerId'].values
 
+# dropping variables 
+train_df = train_df.drop(['PassengerId','Name', 'Sex', 'Ticket', 'Cabin', 'Embarked', 'Age','Fare','Embarked_Fill'], axis=1) 
+test_df = test_df.drop(['PassengerId','Name', 'Sex', 'Ticket', 'Cabin', 'Embarked', 'Age','Fare','Embarked_Fill'], axis=1) 
 
+print test_df.dtypes
 
 # Begin Making prediction on Test Data using simple algorithms
-
-# All Die
-test_df['Survived_All_Dead'] = 0 
-# All Alive
-test_df['Survived_All_Alive'] = 1
-# All Females Live
-test_df['Survived_All_Females_Live'] = np.where(test_df['Sex_Integer'] == 1, 1, 0)
+# Uncomment to fill in a prediction on test_dataframe
+# # All Die
+# test_df['Survived_All_Dead'] = 0 
+# # All Alive
+# test_df['Survived_All_Alive'] = 1
+# # All Females Live
+# test_df['Survived_All_Females_Live'] = np.where(test_df['Sex_Integer'] == 1, 1, 0)
 
 
 
@@ -211,6 +230,20 @@ test_df['Survived_All_Females_Live'] = np.where(test_df['Sex_Integer'] == 1, 1, 
 
 ############# Beg =  Convert Data into format ready for Machine Learning ###############
 
+# ### Turn Dataframe int an arrays for Machine Learning algorithms
+train_data = train_df.values
+test_data = test_df.values
+
+
+#### Run Random Forrest 
+
+# Create the random forest object which will include all the parameters for the fit
+print "Training..."
+forest = RandomForestClassifier(n_estimators = 100)
+forest = forest.fit(train_data[0::,1::],train_data[0::,0])
+
+print "Predicting..."
+output = forest.predict(test_data).astype(int)
 
 
 
@@ -247,7 +280,7 @@ test_df['Survived_All_Females_Live'] = np.where(test_df['Sex_Integer'] == 1, 1, 
 # plt.ylabel("Frequency of Occurrence")
 # plt.show()
 
-# ### Family_Size
+# ### Age X Class
 # plt.hist(train_df['Age_x_Class'],bins=20, alpha = .5)
 # plt.title("Titanic Passengers: Age_x_Class Histogram")
 # plt.xlabel("Age_x_Class")
@@ -259,14 +292,24 @@ test_df['Survived_All_Females_Live'] = np.where(test_df['Sex_Integer'] == 1, 1, 
 
 
 
-###### Prepare a Predictions File ###########
+###### Prepare a Predictions File  using Pandas Dataframe  ###########
 
-# initilize df
-predictions_df = pd.DataFrame({})
-# Copy over Passenger ID
-predictions_df['PassengerId'] = test_df['PassengerId']
-# Set the Passenger ID as the Index 
-predictions_df = predictions_df.set_index('PassengerId')
+# # initilize df
+# predictions_df = pd.DataFrame({})
+# # Copy over Passenger ID
+# predictions_df['PassengerId'] = test_df['PassengerId']
+# # Set the Passenger ID as the Index 
+# predictions_df = predictions_df.set_index('PassengerId')
+
+
+########### Prepare predication File - Using CSV Writer ############
+
+predictions_file = open("..\\output\\predictions_random_forest.csv", "wb")
+open_file_object = csv.writer(predictions_file)
+open_file_object.writerow(["PassengerId","Survived"])
+open_file_object.writerows(zip(ids, output))
+predictions_file.close()
+print 'Done.'
 
 
 
@@ -290,10 +333,14 @@ predictions_df = predictions_df.set_index('PassengerId')
 # predictions_df.to_csv(prediction_file,sep=',')
 
 
-### Gender, Class, Ticket Price Bin
+# ### Exporting the Training Dataframe
+# train_data_file = "C:\\Users\\Justin\\Development\\Kaggle_Titanic\\output\\train_data_cleaned.csv"
+# train_df.to_csv(train_data_file,sep=',')
 
 
-
+# ### Exporting the Test Dataframe
+# test_data_file = "C:\\Users\\Justin\\Development\\Kaggle_Titanic\\output\\test_data_cleaned.csv"
+# test_df.to_csv(test_data_file,sep=',')
 
 
 
@@ -307,8 +354,12 @@ predictions_df = predictions_df.set_index('PassengerId')
 # print test_df
 # print median_ages
 # print train_df[ train_df['Age'].isnull() ][['Sex_Integer','Pclass','Age','Age_Fill']].head(10)   # looking for N/As in Age
+# print train_df[ train_df['Fare'].isnull() ][['Sex_Integer','Pclass','Age_Fill']].head(10)   # looking for N/As in Age
+# print test_df[ test_df['Fare'].isnull() ][['Sex_Integer','Pclass','Age_Fill']].head(10)   # looking for N/As in Age
+
 # print train_data
 # print predictions_df.head()
+
 
 
 
